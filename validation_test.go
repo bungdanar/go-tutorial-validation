@@ -2,6 +2,9 @@ package tutorialvalidation
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/go-playground/validator/v10"
@@ -277,6 +280,192 @@ func TestBasicMap(t *testing.T) {
 		Wallets: map[string]int{
 			"bc": 2,
 		},
+	}
+
+	err := validate.Struct(request)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+}
+
+func TestAlias(t *testing.T) {
+	validate := validator.New()
+	validate.RegisterAlias("varchar", "required,max=255")
+
+	type Seller struct {
+		Id     string `validate:"varchar,min=5"`
+		Name   string `validate:"varchar"`
+		Owner  string `validate:"varchar"`
+		Slogan string `validate:"varchar"`
+	}
+
+	seller := Seller{
+		Id:     "123",
+		Name:   "",
+		Owner:  "",
+		Slogan: "",
+	}
+
+	err := validate.Struct(seller)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+}
+
+func MustValidUsername(field validator.FieldLevel) bool {
+	value, ok := field.Field().Interface().(string)
+	if ok {
+		if value != strings.ToUpper(value) {
+			return false
+		}
+
+		if len(value) < 5 {
+			return false
+		}
+
+		return true
+	} else {
+		return false
+	}
+}
+
+func TestCustomValidation(t *testing.T) {
+	validate := validator.New()
+	validate.RegisterValidation("username", MustValidUsername)
+
+	type LoginRequest struct {
+		Username string `validate:"required,username"`
+		Password string `validate:"required"`
+	}
+
+	request := LoginRequest{
+		Username: "ABCDE",
+		Password: "12345",
+	}
+
+	err := validate.Struct(request)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+}
+
+var regexNumber = regexp.MustCompile("^[0-9]+$")
+
+func MustValidPin(field validator.FieldLevel) bool {
+	length, err := strconv.Atoi(field.Param())
+	if err != nil {
+		panic(err)
+	}
+
+	value := field.Field().String()
+	if !regexNumber.MatchString(value) {
+		return false
+	}
+
+	return len(value) == length
+}
+
+func TestCustomValidationParameter(t *testing.T) {
+	validate := validator.New()
+	validate.RegisterValidation("pin", MustValidPin)
+
+	type Login struct {
+		Phone string `validate:"required,number"`
+		Pin   string `validate:"required,pin=6"`
+	}
+
+	request := Login{
+		Phone: "1234",
+		Pin:   "123456",
+	}
+
+	err := validate.Struct(request)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+}
+
+func TestOrRule(t *testing.T) {
+	type Login struct {
+		Username string `validate:"required,email|numeric"`
+		Password string `validate:"required"`
+	}
+
+	validate := validator.New()
+
+	request := Login{
+		Username: "080989999",
+		Password: "12345",
+	}
+
+	err := validate.Struct(request)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+}
+
+func MustEqualIgnoreCase(field validator.FieldLevel) bool {
+	value, _, _, ok := field.GetStructFieldOK2()
+	if !ok {
+		panic("field not ok")
+	}
+
+	firstValue := strings.ToUpper(field.Field().String())
+	secondValue := strings.ToUpper(value.String())
+
+	return firstValue == secondValue
+}
+
+func TestCustomValidationCrossField(t *testing.T) {
+	validate := validator.New()
+	validate.RegisterValidation("equal_ignore_case", MustEqualIgnoreCase)
+
+	type User struct {
+		Username string `validate:"required,equal_ignore_case=Email|equal_ignore_case=Phone"`
+		Email    string `validate:"required,email"`
+		Phone    string `validate:"required,numeric"`
+		Name     string `validate:"required"`
+	}
+
+	user := User{
+		Username: "080989999",
+		Email:    "abc@gmail.com",
+		Phone:    "080989999",
+		Name:     "Bung",
+	}
+
+	err := validate.Struct(user)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+}
+
+type RegisterRequest struct {
+	Username string `validate:"required"`
+	Email    string `validate:"required,email"`
+	Phone    string `validate:"required,numeric"`
+	Password string `validate:"required"`
+}
+
+func MustValidRegisterSuccess(level validator.StructLevel) {
+	registerReq := level.Current().Interface().(RegisterRequest)
+
+	if registerReq.Username == registerReq.Email || registerReq.Username == registerReq.Phone {
+
+	} else {
+		level.ReportError(registerReq.Username, "Username", "Username", "username", "")
+	}
+}
+
+func TestStructLevelValidation(t *testing.T) {
+	validate := validator.New()
+	validate.RegisterStructValidation(MustValidRegisterSuccess, RegisterRequest{})
+
+	request := RegisterRequest{
+		Username: "abcd@gmail.com",
+		Email:    "abc@gmail.com",
+		Phone:    "080989999",
+		Password: "12345",
 	}
 
 	err := validate.Struct(request)
